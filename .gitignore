@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+backend/index/
+backend/reference_photos/**
+!backend/reference_photos/README.md
+service-account*.json

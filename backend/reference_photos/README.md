@@ -1,0 +1,1 @@
+Add only reference photographs your organization is legally permitted to use. Each location gets a folder containing metadata.json and one or more reference photos. See the root README for the required metadata fields and the build-index command. Do not commit the actual reference dataset to a public repository.

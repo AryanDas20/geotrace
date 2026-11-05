@@ -1,0 +1,43 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function memberPath(orgId) {
+      return /databases/(default)/documents/orgs/$(orgId)/members/$(request.auth.uid);
+    }
+    function approved(orgId) {
+      return signedIn()
+        && firestore.exists(memberPath(orgId))
+        && firestore.get(memberPath(orgId)).data.status == 'approved';
+    }
+    function role(orgId) {
+      return firestore.get(memberPath(orgId)).data.role;
+    }
+    function canWrite(orgId) {
+      return approved(orgId) && role(orgId) in ['admin', 'investigator'];
+    }
+    function casePath(orgId, caseId) {
+      return /databases/(default)/documents/orgs/$(orgId)/cases/$(caseId);
+    }
+
+    match /orgs/{orgId}/cases/{caseId}/evidence/{uid}/{fileName} {
+      allow read: if approved(orgId);
+      allow create: if canWrite(orgId)
+        && request.auth.uid == uid
+        && firestore.exists(casePath(orgId, caseId))
+        && (firestore.get(casePath(orgId, caseId)).data.createdBy == request.auth.uid || role(orgId) == 'admin')
+        && request.resource.size > 0
+        && request.resource.size <= 25 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|tiff)');
+      allow update: if false;
+      // Evidence deletion is a trusted retention-policy operation, not a client action.
+      allow delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,9 @@
+# Install in a dedicated Python 3.10/3.11 virtual environment; deep-learning wheels are platform-specific.
+-r requirements.txt
+numpy>=1.26,<2.0
+faiss-cpu>=1.8
+open_clip_torch>=2.24
+torch>=2.2
+paddlepaddle>=2.6
+paddleocr>=2.7,<3
+rapidfuzz>=3.9

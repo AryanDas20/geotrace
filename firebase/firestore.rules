@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function memberPath(orgId) {
+      return /databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid);
+    }
+
+    function isApprovedMember(orgId) {
+      return signedIn()
+        && exists(memberPath(orgId))
+        && get(memberPath(orgId)).data.status == 'approved';
+    }
+
+    function role(orgId) {
+      return get(memberPath(orgId)).data.role;
+    }
+
+    function isOrgAdmin(orgId) {
+      return isApprovedMember(orgId) && role(orgId) == 'admin';
+    }
+
+    function canInvestigate(orgId) {
+      return isApprovedMember(orgId) && role(orgId) in ['admin', 'investigator'];
+    }
+
+    // A user can create their own pending profile. Role and approval are not client-writable.
+    match /profiles/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'photoURL', 'organizationId',
+          'accessStatus', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.accessStatus == 'pending'
+        && request.resource.data.organizationId is string
+        && request.resource.data.organizationId.size() > 0;
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /orgs/{orgId}/members/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isOrgAdmin(orgId));
+      // Membership, role, and approval changes must be made by a trusted admin process.
+      allow write: if false;
+    }
+
+    match /orgs/{orgId}/cases/{caseId} {
+      allow read: if isApprovedMember(orgId);
+      allow create: if canInvestigate(orgId)
+        && request.resource.data.keys().hasOnly([
+          'orgId', 'createdBy', 'title', 'priority', 'notes', 'status', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.orgId == orgId
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.status == 'draft'
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 100
+        && request.resource.data.priority in ['Standard', 'High', 'Urgent'];
+      allow update: if isOrgAdmin(orgId)
+        || (canInvestigate(orgId)
+          && resource.data.createdBy == request.auth.uid
+          && resource.data.status == 'draft'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'notes', 'priority', 'updatedAt']));
+      allow delete: if isOrgAdmin(orgId);
+
+      match /evidence/{evidenceId} {
+        allow read: if isApprovedMember(orgId);
+        // The trusted API writes evidence metadata after verifying the file hash.
+        allow write: if false;
+      }
+    }
+
+    match /orgs/{orgId}/auditLogs/{eventId} {
+      allow read: if isApprovedMember(orgId);
+      // Client-side audit events are not tamper-resistant. Only Admin SDK writes them.
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
